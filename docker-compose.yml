@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: fraud-sim-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fraud_sim
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d fraud_sim"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: fraud-sim-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres.qwqtlsauztvdjhcmbnak:C03vRLc8ly3b4qIt@aws-1-ap-northeast-2.pooler.supabase.com:5432/postgres
+    ports:
+      - "8000:8000"
+
+volumes:
+  postgres_data:
