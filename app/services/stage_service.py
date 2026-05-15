@@ -4,9 +4,10 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings, get_settings
 from app.core.time_utils import utc_now
-from app.db.models import Round, UserStageProgress
-from app.repositories.rounds import create_round, get_latest_in_progress_round_for_stage, list_user_stage_rounds
+from app.db.models import Round, UserStageProgress, User, ChatMessage, Scenario
+from app.repositories.rounds import create_round, get_latest_in_progress_round_for_stage, list_user_stage_rounds, add_chat_message
 from app.repositories.stages import (
     count_user_stage_rounds,
     create_user_progress,
@@ -16,6 +17,7 @@ from app.repositories.stages import (
     list_user_progresses,
 )
 from app.services.scenario_selector import select_scenario_for_stage
+from app.services.ai import get_ai_provider
 
 
 @dataclass
@@ -113,10 +115,12 @@ def enter_stage_for_user(*, db: Session, uid: str, stage_id: int) -> StageEnterR
 
 
 def start_round_for_user(*, db: Session, uid: str, stage_id: int) -> RoundStartResult:
+    settings = get_settings()
     stage = get_active_stage(db, stage_id)
     if stage is None:
         raise StageNotFoundError("존재하지 않는 스테이지입니다.")
 
+    user = db.get(User, uid)
     progress = get_user_progress(db, uid, stage_id)
     if progress is None:
         progress = create_user_progress(db, uid, stage_id)
@@ -135,7 +139,7 @@ def start_round_for_user(*, db: Session, uid: str, stage_id: int) -> RoundStartR
             ai_image_url=existing_round.scenario.ai_image_url,
         )
 
-    scenario = select_scenario_for_stage(db, stage)
+    scenario = select_scenario_for_stage(db, stage, settings, user)
 
     round_obj = Round(
         uid=uid,
@@ -144,6 +148,36 @@ def start_round_for_user(*, db: Session, uid: str, stage_id: int) -> RoundStartR
         status="in_progress",
     )
     create_round(db, round_obj)
+
+    # LLM이 먼저 대화를 시작하도록 오프닝 메시지 생성
+    user_meta = {
+        "이름": user.nickname,
+        "연령대": user.age_group or "미상",
+        "직업": user.job or "미상",
+        "은행": user.main_bank or "미상",
+        "거주지": user.residence or "미상"
+    }
+    
+    provider = get_ai_provider(settings)
+    # 오프닝 생성 (비어 있는 history 전달)
+    reply = provider.generate_reply(
+        settings=settings,
+        scenario=scenario,
+        conversation_summary=None,
+        recent_history=[],
+        user_message="", # 오프닝이므로 유저 메시지 없음
+        reveal_evidence=False,
+        user_meta=user_meta
+    )
+    
+    opening_message = ChatMessage(
+        round_id=round_obj.round_id,
+        role="ai",
+        content=reply.content,
+        is_evidence=reply.is_evidence,
+        evidence_reason=reply.evidence_reason,
+    )
+    add_chat_message(db, opening_message)
 
     progress.total_round_count += 1
     progress.updated_at = utc_now()

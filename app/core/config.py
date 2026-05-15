@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-2.0-flash"
 
+    llm_studio_base_url: str = "http://llm.hiclouddev.com/v1"
+    llm_studio_api_key: str = "lm-studio"
+    llm_studio_model: str = "local-model"
+
     conversation_recent_message_limit: int = 8
 
     default_required_score: int = 3

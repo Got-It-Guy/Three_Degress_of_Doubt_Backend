@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.exceptions import ApiError
-from app.db.models import AICallLog, ChatMessage, Scenario, Stage
+from app.db.models import AICallLog, ChatMessage, Scenario, Stage, User
 from app.repositories.rounds import add_ai_log, add_chat_message, get_user_round, list_round_messages
 from app.repositories.stages import get_user_progress
 from app.schemas.reports import FraudPoint
@@ -147,6 +147,15 @@ def send_round_message(
     if scenario is None:
         raise ApiError("라운드에 연결된 시나리오를 찾을 수 없습니다.", status_code=404)
 
+    user_obj = round_obj.user
+    user_meta = {
+        "이름": user_obj.nickname,
+        "연령대": user_obj.age_group or "미상",
+        "직업": user_obj.job or "미상",
+        "은행": user_obj.main_bank or "미상",
+        "거주지": user_obj.residence or "미상"
+    }
+
     user_message = ChatMessage(
         round_id=round_obj.round_id,
         role="user",
@@ -177,6 +186,7 @@ def send_round_message(
         recent_history=context_before_ai.recent_messages,
         user_message=content,
         reveal_evidence=reveal_evidence,
+        user_meta=user_meta,
     )
 
     ai_message = ChatMessage(
