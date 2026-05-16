@@ -11,6 +11,7 @@ class StageListItem(ApiBaseModel):
     is_random: bool
     stage_score: int
     warning_count: int
+    total_round_count: int
     is_cleared: bool
 
 
