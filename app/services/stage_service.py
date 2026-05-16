@@ -27,6 +27,7 @@ class StageListRow:
     is_random: bool
     stage_score: int
     warning_count: int
+    total_round_count: int
     is_cleared: bool
 
 
@@ -82,6 +83,7 @@ def list_stages_for_user(*, db: Session, uid: str) -> list[StageListRow]:
                 is_random=stage.is_random,
                 stage_score=progress.stage_score if progress else 0,
                 warning_count=progress.warning_count if progress else 0,
+                total_round_count=progress.total_round_count if progress else 0,
                 is_cleared=progress.is_cleared if progress else False,
             )
         )
