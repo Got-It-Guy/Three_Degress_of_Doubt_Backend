@@ -6,10 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import ApiError
 from app.db.models import Scenario, Stage
+from app.services.normal_prompt_catalog import WORKER_ALLOWED_RANDOM_GENRES
 from app.services.prompt_mapping import build_fraud_scenario_prompts, build_normal_scenario_prompts
 from app.services.scenario_catalog import (
     get_ai_name,
-    get_all_stage_genres,
     get_stage_methods,
 )
 
@@ -20,7 +20,7 @@ def choose_is_fraud() -> bool:
 
 def _choose_stage_genre(stage: Stage) -> str:
     if stage.is_random:
-        return random.choice(get_all_stage_genres())
+        return random.choice(WORKER_ALLOWED_RANDOM_GENRES)
     return stage.genre
 
 

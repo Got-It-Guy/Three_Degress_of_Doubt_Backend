@@ -4,7 +4,10 @@ import json
 import time
 from dataclasses import dataclass
 
+import httpx
+
 from app.core.config import Settings
+from app.core.exceptions import ApiError
 from app.db.models import ChatMessage, Scenario
 from app.services.prompt_mapping import build_turn_instruction_prompt, resolve_evidence_name
 from app.services.scenario_catalog import get_hide_fallback, get_reveal_fallback
@@ -18,6 +21,7 @@ class AIReply:
     input_tokens: int | None
     output_tokens: int | None
     latency_ms: int
+    worker_is_conversation_over: bool = False
 
 
 def estimate_tokens(text: str) -> int:
@@ -202,3 +206,46 @@ def get_ai_provider(settings: Settings) -> BaseAIProvider:
     if settings.gemini_enabled:
         return GeminiAIProvider()
     return StubAIProvider()
+
+
+def call_normal_worker(*, settings: Settings, payload: dict) -> AIReply:
+    if not settings.ai_worker_token:
+        raise ApiError("AI 응답 생성에 실패했습니다. 잠시 후 다시 시도해주세요.", status_code=500)
+
+    url = f"{settings.ai_worker_base_url.rstrip('/')}/v1/normal-chat"
+    headers = {
+        "X-AI-Worker-Token": settings.ai_worker_token,
+        "Content-Type": "application/json; charset=utf-8",
+    }
+    start = time.perf_counter()
+    try:
+        with httpx.Client(timeout=settings.ai_worker_timeout_seconds) as client:
+            response = client.post(url, headers=headers, json=payload)
+    except httpx.TimeoutException as exc:
+        raise ApiError("AI 응답 생성에 실패했습니다. 잠시 후 다시 시도해주세요.", status_code=504) from exc
+    except httpx.HTTPError as exc:
+        raise ApiError("AI 응답 생성에 실패했습니다. 잠시 후 다시 시도해주세요.", status_code=503) from exc
+
+    if response.status_code == 401:
+        raise ApiError("AI 응답 생성에 실패했습니다. 잠시 후 다시 시도해주세요.", status_code=502)
+    if response.status_code >= 500:
+        raise ApiError("AI 응답 생성에 실패했습니다. 잠시 후 다시 시도해주세요.", status_code=503)
+
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise ApiError("AI 응답 생성에 실패했습니다. 잠시 후 다시 시도해주세요.", status_code=502) from exc
+
+    content = (body.get("content") or "").strip()
+    if body.get("status") != "success" or not content:
+        raise ApiError("AI 응답 생성에 실패했습니다. 잠시 후 다시 시도해주세요.", status_code=502)
+
+    return AIReply(
+        content=content,
+        is_evidence=False,
+        evidence_reason=None,
+        input_tokens=None,
+        output_tokens=None,
+        latency_ms=int((time.perf_counter() - start) * 1000),
+        worker_is_conversation_over=bool(body.get("is_conversation_over")),
+    )

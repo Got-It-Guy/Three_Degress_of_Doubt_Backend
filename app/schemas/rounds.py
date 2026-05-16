@@ -39,6 +39,8 @@ class SendMessageResponse(ApiBaseModel):
     role: str
     content: str
     is_evidence: bool
+    is_conversation_over: bool = False
+    ended_reason: Optional[str] = None
     created_at: str
 
 
