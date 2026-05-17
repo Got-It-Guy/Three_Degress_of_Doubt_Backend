@@ -38,6 +38,7 @@ class StageListRow:
     stage_score: int
     warning_count: int
     total_round_count: int
+    best_round_count: int | None
     is_cleared: bool
 
 
@@ -96,6 +97,15 @@ def _build_fraud_round_context(*, stage_title: str, scenario_genre: str, ai_name
     }
 
 
+def _reset_progress_for_new_attempt(progress: UserStageProgress) -> None:
+    if not progress.is_cleared:
+        return
+    progress.stage_score = 0
+    progress.total_round_count = 0
+    progress.is_cleared = False
+    progress.cleared_at = None
+
+
 def list_stages_for_user(*, db: Session, uid: str) -> list[StageListRow]:
     stages = list_active_stages(db)
     progress_rows = list_user_progresses(db, uid)
@@ -114,6 +124,7 @@ def list_stages_for_user(*, db: Session, uid: str) -> list[StageListRow]:
                 stage_score=progress.stage_score if progress else 0,
                 warning_count=progress.warning_count if progress else 0,
                 total_round_count=progress.total_round_count if progress else 0,
+                best_round_count=progress.best_round_count if progress else None,
                 is_cleared=progress.is_cleared if progress else False,
             )
         )
@@ -129,17 +140,17 @@ def enter_stage_for_user(*, db: Session, uid: str, stage_id: int) -> StageEnterR
     if progress is None:
         progress = create_user_progress(db, uid, stage_id)
 
-    total_round_count = count_user_stage_rounds(db, uid, stage_id)
-    progress.total_round_count = total_round_count
-    progress.updated_at = utc_now()
-
     incomplete_round = get_latest_in_progress_round_for_stage(db, uid, stage_id)
+    if incomplete_round is None:
+        _reset_progress_for_new_attempt(progress)
+
+    progress.updated_at = utc_now()
 
     db.commit()
     db.refresh(progress)
     return StageEnterResult(
         progress=progress,
-        total_round_count=total_round_count,
+        total_round_count=progress.total_round_count,
         has_incomplete_round=incomplete_round is not None,
     )
 
@@ -159,7 +170,6 @@ def start_round_for_user(*, db: Session, uid: str, stage_id: int) -> RoundStartR
             (msg for msg in list_round_messages(db, str(existing_round.round_id)) if msg.role in ("ai", "assistant")),
             None,
         )
-        progress.total_round_count = count_user_stage_rounds(db, uid, stage_id)
         progress.updated_at = utc_now()
         db.commit()
         db.refresh(progress)
@@ -171,6 +181,8 @@ def start_round_for_user(*, db: Session, uid: str, stage_id: int) -> RoundStartR
             ai_image_url=existing_round.scenario.ai_image_url,
             initial_message=existing_initial_message,
         )
+
+    _reset_progress_for_new_attempt(progress)
 
     scenario = select_scenario_for_stage(db, stage)
     user_row = db.get(User, uid)

@@ -12,6 +12,7 @@ class StageListItem(ApiBaseModel):
     stage_score: int
     warning_count: int
     total_round_count: int
+    best_round_count: Optional[int] = None
     is_cleared: bool
 
 

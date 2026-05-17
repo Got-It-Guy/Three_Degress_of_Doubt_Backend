@@ -122,6 +122,7 @@ def test_two_wrong_judgements_trigger_reset(client: TestClient, auth_headers: di
     assert first_judge.json()["current_warning"] == 1
 
     second_round_id = client.post("/api/v1/stages/5/rounds", headers=auth_headers).json()["data"]["round_id"]
+    assert second_round_id == first_round_id
     second_judge = client.post(
         f"/api/v1/rounds/{second_round_id}/judge",
         headers=auth_headers,
@@ -131,6 +132,47 @@ def test_two_wrong_judgements_trigger_reset(client: TestClient, auth_headers: di
     assert second_judge.json()["result"] == "reset"
     assert second_judge.json()["current_warning"] == 0
     assert second_judge.json()["current_score"] == 0
+
+
+def test_stage_warning_persists_after_pass_and_next_round(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    monkeypatch,
+):
+    _sync_default_user(client)
+    monkeypatch.setattr("app.services.scenario_selector.choose_is_fraud", lambda: False)
+
+    start = client.post("/api/v1/stages/1/rounds", headers=auth_headers)
+    assert start.status_code == 200
+    round_id = start.json()["data"]["round_id"]
+
+    wrong = client.post(
+        f"/api/v1/rounds/{round_id}/judge",
+        headers=auth_headers,
+        json={"is_fraud_judged": True},
+    )
+    assert wrong.status_code == 200
+    assert wrong.json()["result"] == "warning"
+    assert wrong.json()["current_warning"] == 1
+
+    correct = client.post(
+        f"/api/v1/rounds/{round_id}/judge",
+        headers=auth_headers,
+        json={"is_fraud_judged": False},
+    )
+    assert correct.status_code == 200
+    assert correct.json()["result"] == "pass"
+    assert correct.json()["current_score"] == 1
+    assert correct.json()["current_warning"] == 1
+
+    next_start = client.post("/api/v1/stages/1/rounds", headers=auth_headers)
+    assert next_start.status_code == 200
+    assert next_start.json()["data"]["round_id"] != round_id
+
+    stages = client.get("/api/v1/stages", headers=auth_headers)
+    stage1 = next(stage for stage in stages.json()["stages"] if stage["stage_id"] == 1)
+    assert stage1["stage_score"] == 1
+    assert stage1["warning_count"] == 1
 
 
 
@@ -303,6 +345,66 @@ def test_worker_done_ends_round_and_rejects_new_message(client: TestClient, auth
 
     settings.ai_worker_enabled = original_enabled
     settings.ai_worker_token = original_token
+
+
+def test_stage_clear_keeps_score_until_next_attempt_and_keeps_best_round_count(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    monkeypatch,
+    db_session,
+):
+    from app.db.models import Stage
+
+    _sync_default_user(client)
+    monkeypatch.setattr("app.services.scenario_selector.choose_is_fraud", lambda: True)
+
+    stage = db_session.get(Stage, 5)
+    stage.required_score = 1
+    db_session.commit()
+
+    start = client.post("/api/v1/stages/5/rounds", headers=auth_headers)
+    assert start.status_code == 200
+    round_id = start.json()["data"]["round_id"]
+
+    message = client.post(
+        f"/api/v1/rounds/{round_id}/messages",
+        headers=auth_headers,
+        json={"content": "사기 단서 확인"},
+    )
+    assert message.status_code == 200
+    assert message.json()["is_evidence"] is True
+
+    judge = client.post(
+        f"/api/v1/rounds/{round_id}/judge",
+        headers=auth_headers,
+        json={"is_fraud_judged": True},
+    )
+    assert judge.status_code == 200
+    judge_body = judge.json()
+    assert judge_body["result"] == "pass"
+    assert judge_body["current_score"] == 1
+    assert judge_body["is_stage_cleared"] is True
+
+    stages = client.get("/api/v1/stages", headers=auth_headers)
+    stage5 = next(stage for stage in stages.json()["stages"] if stage["stage_id"] == 5)
+    assert stage5["stage_score"] == 1
+    assert stage5["total_round_count"] == 1
+    assert stage5["best_round_count"] == 1
+    assert stage5["is_cleared"] is True
+
+    enter_again = client.post("/api/v1/stages/5/enter", headers=auth_headers)
+    assert enter_again.status_code == 200
+    enter_body = enter_again.json()
+    assert enter_body["stage_score"] == 0
+    assert enter_body["total_round_count"] == 0
+    assert enter_body["is_cleared"] is False
+
+    stages_after_enter = client.get("/api/v1/stages", headers=auth_headers)
+    stage5_after_enter = next(stage for stage in stages_after_enter.json()["stages"] if stage["stage_id"] == 5)
+    assert stage5_after_enter["stage_score"] == 0
+    assert stage5_after_enter["total_round_count"] == 0
+    assert stage5_after_enter["best_round_count"] == 1
+    assert stage5_after_enter["is_cleared"] is False
 
 
 def test_explicit_end_endpoint_marks_user_stop(client: TestClient, auth_headers: dict[str, str], monkeypatch):

@@ -24,6 +24,7 @@ def test_stage_list_enter_and_start_round(client: TestClient, auth_headers: dict
     assert [stage["stage_id"] for stage in stages] == [1, 2, 3, 4, 5, 6]
     assert [stage["title"] for stage in stages] == ["보이스피싱", "투자사기", "부동산사기", "대출사기", "중고사기", "랜덤"]
     assert stages[0]["stage_score"] == 0
+    assert stages[0]["best_round_count"] is None
 
     enter_response = client.post("/api/v1/stages/1/enter", headers=auth_headers)
     assert enter_response.status_code == 200
@@ -70,6 +71,14 @@ def test_list_stage_rounds_returns_all_rounds_for_stage(client: TestClient, auth
     start_stage1_first = client.post("/api/v1/stages/1/rounds", headers=auth_headers)
     assert start_stage1_first.status_code == 200
     first_round_id = start_stage1_first.json()["data"]["round_id"]
+
+    first_message = client.post(
+        f"/api/v1/rounds/{first_round_id}/messages",
+        headers=auth_headers,
+        json={"content": "첫 번째 라운드 증거 메시지"},
+    )
+    assert first_message.status_code == 200
+    assert first_message.json()["is_evidence"] is True
 
     judge_first = client.post(
         f"/api/v1/rounds/{first_round_id}/judge",
