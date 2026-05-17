@@ -249,7 +249,7 @@ python -m app.seed_data
 - `warning_count`: 해당 스테이지에 누적된 경고 수
 - `total_round_count`: 현재 도전에서 사용한 라운드 수
 - `best_round_count`: 스테이지 클리어 최고 기록. 기록이 없으면 `null`
-- `is_cleared`: 현재 스테이지 클리어 여부
+- `is_cleared`: 해당 스테이지를 한 번이라도 클리어했는지 여부
 
 ### 5.2 라운드 시작
 
@@ -420,12 +420,13 @@ round.result = pass
 ```text
 stage_score = 0
 total_round_count = 0
-is_cleared = false
+is_cleared = true 유지
+cleared_at 유지
 best_round_count 유지
 warning_count 유지
 ```
 
-즉 다음 도전은 0점부터 시작하지만 최고 기록은 유지됩니다.
+즉 다음 도전은 0점부터 시작하지만, 이미 한 번 클리어했다는 기록과 최고 기록은 유지됩니다.
 
 ## 7. 파일별 변경 상세
 
@@ -529,7 +530,7 @@ warning_count 유지
 - worker 초기 메시지를 저장하고 응답에 포함합니다.
 - 사기 시나리오는 placeholder 안내로 시작합니다.
 - 스테이지 목록에 `best_round_count`를 포함합니다.
-- 클리어 후 같은 스테이지 재입장 시 새 도전을 위해 `stage_score`, `total_round_count`, `is_cleared`를 초기화하되 `best_round_count`는 유지합니다.
+- 클리어 후 같은 스테이지 재입장 시 새 도전을 위해 `stage_score`, `total_round_count`만 초기화하고, `is_cleared`, `cleared_at`, `best_round_count`는 유지합니다.
 
 주의:
 

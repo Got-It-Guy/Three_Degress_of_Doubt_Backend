@@ -347,7 +347,7 @@ def test_worker_done_ends_round_and_rejects_new_message(client: TestClient, auth
     settings.ai_worker_token = original_token
 
 
-def test_stage_clear_keeps_score_until_next_attempt_and_keeps_best_round_count(
+def test_stage_clear_resets_attempt_score_but_keeps_clear_record(
     client: TestClient,
     auth_headers: dict[str, str],
     monkeypatch,
@@ -397,14 +397,14 @@ def test_stage_clear_keeps_score_until_next_attempt_and_keeps_best_round_count(
     enter_body = enter_again.json()
     assert enter_body["stage_score"] == 0
     assert enter_body["total_round_count"] == 0
-    assert enter_body["is_cleared"] is False
+    assert enter_body["is_cleared"] is True
 
     stages_after_enter = client.get("/api/v1/stages", headers=auth_headers)
     stage5_after_enter = next(stage for stage in stages_after_enter.json()["stages"] if stage["stage_id"] == 5)
     assert stage5_after_enter["stage_score"] == 0
     assert stage5_after_enter["total_round_count"] == 0
     assert stage5_after_enter["best_round_count"] == 1
-    assert stage5_after_enter["is_cleared"] is False
+    assert stage5_after_enter["is_cleared"] is True
 
 
 def test_explicit_end_endpoint_marks_user_stop(client: TestClient, auth_headers: dict[str, str], monkeypatch):

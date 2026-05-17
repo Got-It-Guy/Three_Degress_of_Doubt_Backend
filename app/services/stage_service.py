@@ -102,8 +102,6 @@ def _reset_progress_for_new_attempt(progress: UserStageProgress) -> None:
         return
     progress.stage_score = 0
     progress.total_round_count = 0
-    progress.is_cleared = False
-    progress.cleared_at = None
 
 
 def list_stages_for_user(*, db: Session, uid: str) -> list[StageListRow]:
