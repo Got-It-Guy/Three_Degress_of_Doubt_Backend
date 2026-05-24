@@ -31,8 +31,9 @@ class AttackerEngine:
         self.file_map = {
             "보이스피싱": os.path.join(self.project_root, "csv/classified_output/보이스피싱.csv"),
             "대출사기": os.path.join(self.project_root, "csv/classified_output/대출사기.csv"),
-            "부동산사기": os.path.join(self.project_root, "csv/classified_output/부동산사기.csv"),
-            "투자사기": os.path.join(self.project_root, "csv/classified_output/투자사기.csv")
+            "부동산사기": os.path.join(self.project_root, "csv/classified_output/부돈산사기.csv"),
+            "투자사기": os.path.join(self.project_root, "csv/classified_output/투자사기.csv"),
+            "중고거래사기": os.path.join(self.project_root, "csv/classified_output/중고거래사기.csv")
         }
         self.fss_path = os.path.join(self.project_root, "csv/fss_voicephishing_cases_clean.csv")
 
@@ -46,21 +47,61 @@ class AttackerEngine:
             return {}
 
     def generate_scenario(self, category: str, user_meta: Dict[str, Any]) -> Dict[str, Any]:
-        attack_goals = [
-            {"goal": "송금 유도", "method": "안전 계좌 이체 또는 공탁금 명목의 직접 송금 요구"},
-            {"goal": "악성 앱 설치", "method": "원격 제어 앱(TeamViewer 등) 또는 수사기관 사칭 앱 설치 유도"},
-            {"goal": "피싱 사이트 유도", "method": "가짜 검찰청/은행 사이트 접속 및 금융정보(비밀번호, OTP) 입력 유도"}
-        ]
-        selected_goal = random.choice(attack_goals)
+        # 1. 카테고리별 특화된 공격 목표와 수단 설정
+        category_goals = {
+            "보이스피싱": [
+                {"goal": "송금 유도", "method": "안전 계좌 이체 또는 공탁금 명목의 직접 송금 요구"},
+                {"goal": "악성 앱 설치", "method": "수사기관 사칭 앱(APK) 설치 및 금융정보 탈취 유도"}
+            ],
+            "대출사기": [
+                {"goal": "선입금 편취", "method": "대환대출 승인을 위한 예치금 혹은 수수료 송금 요구"},
+                {"goal": "금융 앱 설치", "method": "한도 조회를 가장한 가짜 금융기관 앱 설치 유도"}
+            ],
+            "중고거래사기": [
+                {"goal": "물건 대금 편취", "method": "타 지역 거주를 핑계로 직접 송금 및 택배 거래 유도"},
+                {"goal": "안전결제 사기", "method": "네이버페이/번개장터 위장 피싱 링크를 통한 결제 유도"}
+            ],
+            "투자사기": [
+                {"goal": "투자금 편취", "method": "비상장 주식 선취매 혹은 VIP 리딩방 가입비 송금 요구"}
+            ],
+            "부동산사기": [
+                {"goal": "가계약금 편취", "method": "매물 선점을 위한 즉시 이체 종용"}
+            ]
+        }
+        
+        goals = category_goals.get(category, category_goals["보이스피싱"])
+        selected_goal = random.choice(goals)
+
+        # 2. 카테고리별 정교한 디폴트 시나리오 설정 (계좌번호 추가)
+        default_configs = {
+            "보이스피싱": {
+                "name": "김수현 수사관", "role": "서울중앙지검 수사관", "pretext": "개인정보 도용 사건 연루", "amount": 5000000, "account": "국민은행 403-12-456789 (국가안전보호계좌)"
+            },
+            "대출사기": {
+                "name": "이지훈 대리", "role": "KB국민지원금융 상담원", "pretext": "정부지원 대환대출 특별 선정", "amount": 3000000, "account": "신한은행 110-523-998877 (예치금 수납처)"
+            },
+            "중고거래사기": {
+                "name": "박민수", "role": "개인 판매자", "pretext": "아이패드 프로 급처분", "amount": 450000, "account": "우리은행 1002-888-123456 (박민수)"
+            },
+            "투자사기": {
+                "name": "VIP 리딩팀장", "role": "투자 자산 운용가", "pretext": "상장 예정 비공개 종목 공유", "amount": 10000000, "account": "하나은행 203-910234-55607 (가상자산결제대행)"
+            },
+            "부동산사기": {
+                "name": "김철수 실장", "role": "공인중개사 사무소 실장", "pretext": "역세권 오피스텔 급매물 선점", "amount": 2000000, "account": "농협은행 302-0045-1234-51 (김철수 부동산)"
+            }
+        }
+        
+        conf = default_configs.get(category, default_configs["보이스피싱"])
 
         default_scenario = {
-            "official_name": "김수현 수사관", 
-            "scammer_role": "수사관",
+            "official_name": conf["name"],
+            "scammer_role": conf["role"],
             "main_goal": selected_goal["goal"],
             "attack_method": selected_goal["method"],
-            "pretext": "명의도용 및 자금세탁",
-            "logic": "본인 계좌가 대포통장으로 이용되어 긴급 확인이 필요함",
-            "target_amount": 5000000,
+            "pretext": conf["pretext"],
+            "logic": "지금 즉시 조치하지 않으면 기회를 상실하거나 법적 불익이 발생할 수 있음",
+            "target_amount": conf["amount"],
+            "account_no": conf["account"],
             "fake_link": ""
         }
 
@@ -127,14 +168,14 @@ class AttackerEngine:
         history: List[Dict[str, str]],
         user_meta: Dict[str, Any],
         scenario_data: Dict[str, Any]
-    ) -> str:
+    ) -> Dict[str, Any]:
         # 1. 심리 분석
         user_state = self.analyze_user_state(history)
         
         # 2. 단계 결정
         stages = SCENARIO_STAGES.get(category, ["접근", "신뢰형성", "의심대응", "위협_압박", "행동유도", "마무리"])
         
-        # 간단한 단계 결정 로직 (prototype과 동일)
+        # 간단한 단계 결정 로직
         user_in = history[-1]['content'] if history and history[-1]['role'] == 'user' else ""
         
         if user_state.get('compliance', 0) > 90 and any(kw in user_in for kw in ["보냈", "송금", "입금", "완료"]):
@@ -156,6 +197,7 @@ class AttackerEngine:
             stage=current_stage,
             logic=scenario_data.get('logic', ''),
             target_amount=scenario_data.get('target_amount', 0),
+            account_no=scenario_data.get('account_no', '별도 안내 예정'),
             fake_link=scenario_data.get('fake_link', '')
         )
 
@@ -173,14 +215,27 @@ class AttackerEngine:
         
         messages = [{"role": "system", "content": instruction}] + history[-8:]
         
-        response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=messages,
-            temperature=0.8
-        )
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                temperature=0.8
+            )
+            reply = response.choices[0].message.content.strip()
+        except:
+            reply = "연결이 잠시 끊겼습니다. 다시 말씀해 주시겠어요?"
+            
+        sanitized_reply = self._sanitize_response(reply)
         
-        reply = response.choices[0].message.content.strip()
-        return self._sanitize_response(reply)
+        # 3. 사기 혐의점(is_evidence) 판정 로직
+        evidence_stages = ["행동유도", "결제유도", "계약유도", "위협_압박", "재촉_압박", "마무리"]
+        is_evidence = (current_stage in evidence_stages) or ("http" in sanitized_reply.lower())
+
+        return {
+            "content": sanitized_reply,
+            "stage": current_stage,
+            "is_evidence": is_evidence
+        }
 
     def _sanitize_response(self, text: str) -> str:
         text = re.sub(r'\(.*?\)', '', text)

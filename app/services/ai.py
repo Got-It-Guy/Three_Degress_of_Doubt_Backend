@@ -220,19 +220,15 @@ class AttackerAIProvider(BaseAIProvider):
     ) -> AIReply:
         start = time.perf_counter()
         
-        # history 변환
         history = [
             {"role": "assistant" if m.role == "ai" else m.role, "content": m.content}
             for m in recent_history
         ]
-        # 현재 유저 메시지 추가
         history.append({"role": "user", "content": user_message})
         
-        # scenario_data 복구 (system_prompt에 JSON으로 저장되어 있다고 가정)
         try:
             scenario_data = json.loads(scenario.system_prompt)
         except:
-            # 실패 시 기본값 (또는 engine의 default 사용)
             scenario_data = {
                 "official_name": scenario.ai_name,
                 "scammer_role": scenario.genre,
@@ -243,35 +239,35 @@ class AttackerAIProvider(BaseAIProvider):
         if user_meta is None:
             user_meta = {"이름": "사용자", "연령대": "미상", "직업": "미상"}
 
-        content = self.engine.generate_reply(
+        # 엔진 응답 (Dict 형태)
+        result = self.engine.generate_reply(
             category=scenario.genre,
             history=history,
             user_meta=user_meta,
             scenario_data=scenario_data
         )
         
+        content = result["content"]
         latency_ms = int((time.perf_counter() - start) * 1000)
         
-        # 단서 노출 여부 판단 (단순하게 engine 응답에 [EXIT]가 있거나 reveal_evidence 지시가 있을 때)
-        # 또는 user's logic에 따른 evidence_name 매칭
-        is_evidence = reveal_evidence
+        # 엔진의 판단 결과 반영
+        is_evidence = result["is_evidence"] or reveal_evidence
         evidence_reason = None
         if is_evidence:
             evidence_name = _resolve_primary_evidence_name(scenario)
-            evidence_reason = f"핵심 단서 '{evidence_name}'가 노출되었습니다."
+            evidence_reason = f"사기 혐의점('{result.get('stage', '상태')}')이 감지되었습니다."
 
         return AIReply(
             content=content,
             is_evidence=is_evidence,
             evidence_reason=evidence_reason,
-            input_tokens=estimate_tokens(str(history)), # 대략적
+            input_tokens=estimate_tokens(str(history)),
             output_tokens=estimate_tokens(content),
             latency_ms=latency_ms,
         )
 
 
 def get_ai_provider(settings: Settings) -> BaseAIProvider:
-    # LLM Studio 설정이 있으면 우선적으로 사용 (특히 사기 시나리오에서)
     if settings.llm_studio_base_url and "hiclouddev.com" in settings.llm_studio_base_url:
         return AttackerAIProvider(settings)
     if settings.gemini_enabled:
