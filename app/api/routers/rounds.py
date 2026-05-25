@@ -18,6 +18,7 @@ from app.schemas.rounds import (
     SendMessageResponse,
 )
 from app.services.round_service import (
+    end_round_for_user,
     get_round_context_for_user,
     get_round_report_for_user,
     judge_round_for_user,
@@ -105,8 +106,20 @@ def send_message(
         role=result.role,
         content=result.content,
         is_evidence=result.is_evidence,
+        is_conversation_over=result.is_conversation_over,
+        ended_reason=result.ended_reason,
         created_at=to_iso_z(result.created_at) or "",
     )
+
+
+@router.post("/{round_id}/end")
+def end_round(
+    round_id: str,
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    end_round_for_user(db=db, uid=current_user.uid, round_id=round_id)
+    return {"status": "success", "message": "round ended", "data": None}
 
 
 @router.post("/{round_id}/judge", response_model=JudgeResponse)

@@ -21,7 +21,20 @@ class Settings(BaseSettings):
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-2.0-flash"
 
+    # Attacker LLM engine. Fraud scenarios use this, normal scenarios keep the verify worker flow.
+    llm_studio_enabled: bool = True
+    llm_studio_base_url: str = "http://llm.hiclouddev.com/v1"
+    llm_studio_api_key: str = "lm-studio"
+    llm_studio_model: str = "local-model"
+
+    ai_worker_enabled: bool = False
+    ai_worker_base_url: str = "https://ai.my-bucket-editor.win"
+    ai_worker_token: Optional[str] = None
+    ai_worker_timeout_seconds: int = 180
+
     conversation_recent_message_limit: int = 8
+    min_user_turns_for_natural_end: int = 3
+    normal_max_user_turns: int = 20
 
     default_required_score: int = 3
     default_max_scriptless_turns: int = 3

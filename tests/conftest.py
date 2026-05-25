@@ -73,3 +73,39 @@ def client(db_session: Session):
 @pytest.fixture()
 def auth_headers() -> dict[str, str]:
     return {"Authorization": "Bearer test-token-not-used"}
+
+@pytest.fixture(autouse=True)
+def fake_attacker_engine(monkeypatch):
+    class FakeAttackerEngine:
+        def __init__(self, settings):
+            self.settings = settings
+
+        def generate_scenario(self, category, user_meta):
+            return {
+                "official_name": "테스트 공격자",
+                "scammer_role": category,
+                "main_goal": "테스트 목적",
+                "attack_method": "테스트 공격 수단",
+                "pretext": "테스트 동적 사기 명분",
+                "logic": "테스트 압박 논리",
+                "target_amount": 10000,
+                "account_no": "테스트은행 123-456",
+                "fake_link": "",
+            }
+
+        def generate_reply(self, category, history, user_meta, scenario_data):
+            has_user_message = bool(history and history[-1].get("role") == "user" and history[-1].get("content"))
+            if not has_user_message:
+                return {
+                    "content": "테스트 공격자입니다. 확인이 필요합니다.",
+                    "stage": "접근",
+                    "is_evidence": False,
+                }
+            return {
+                "content": "테스트 사기 응답입니다.",
+                "stage": "행동유도",
+                "is_evidence": True,
+            }
+
+    monkeypatch.setattr("app.services.scenario_selector.AttackerEngine", FakeAttackerEngine)
+    monkeypatch.setattr("app.services.ai.AttackerEngine", FakeAttackerEngine)

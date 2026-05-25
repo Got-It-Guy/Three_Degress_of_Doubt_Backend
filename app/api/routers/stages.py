@@ -8,6 +8,7 @@ from app.core.time_utils import to_iso_z
 from app.db.session import get_db
 from app.schemas.stages import (
     RoundStartData,
+    RoundStartInitialMessage,
     RoundStartResponse,
     StageEnterResponse,
     StageListItem,
@@ -90,6 +91,17 @@ def start_round(
             situation_prompt=result.situation_prompt,
             ai_name=result.ai_name,
             ai_image_url=result.ai_image_url,
+            initial_message=(
+                RoundStartInitialMessage(
+                    message_id=str(result.initial_message.message_id),
+                    role=result.initial_message.role,
+                    content=result.initial_message.content,
+                    is_evidence=result.initial_message.is_evidence,
+                    created_at=to_iso_z(result.initial_message.created_at) or "",
+                )
+                if result.initial_message is not None
+                else None
+            ),
             started_at=to_iso_z(result.round_obj.started_at) or "",
         )
     )

@@ -12,6 +12,7 @@ class StageListItem(ApiBaseModel):
     stage_score: int
     warning_count: int
     total_round_count: int
+    best_round_count: Optional[int] = None
     is_cleared: bool
 
 
@@ -31,12 +32,21 @@ class StageEnterResponse(ApiBaseModel):
     has_incomplete_round: bool
 
 
+class RoundStartInitialMessage(ApiBaseModel):
+    message_id: str
+    role: str
+    content: str
+    is_evidence: bool = False
+    created_at: str
+
+
 class RoundStartData(ApiBaseModel):
     round_id: str
     scenario_id: str
     situation_prompt: str
     ai_name: str
     ai_image_url: Optional[str] = None
+    initial_message: Optional[RoundStartInitialMessage] = None
     started_at: str
 
 

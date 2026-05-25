@@ -109,6 +109,13 @@ class Round(Base):
     scenario_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("scenarios.scenario_id", ondelete="CASCADE"), nullable=False
     )
+    scenario_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    scenario_variant: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    scenario_context: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    situation_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    user_turn_count: Mapped[int] = mapped_column(SmallInteger, default=0, nullable=False)
+    max_user_turns: Mapped[int] = mapped_column(SmallInteger, default=20, nullable=False)
+    ended_reason: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     status: Mapped[str] = mapped_column(String(20), default="in_progress", nullable=False)
     is_fraud_judged: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
@@ -144,6 +151,8 @@ class ChatMessage(Base):
     is_evidence: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     evidence_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    worker_is_conversation_over: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    backend_end_rule: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     round: Mapped[Round] = relationship(back_populates="messages")
