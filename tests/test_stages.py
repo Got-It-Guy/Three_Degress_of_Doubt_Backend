@@ -1,4 +1,4 @@
-from fastapi.testclient import TestClient
+﻿from fastapi.testclient import TestClient
 
 
 def _sync_default_user(client: TestClient) -> None:
@@ -24,6 +24,7 @@ def test_stage_list_enter_and_start_round(client: TestClient, auth_headers: dict
     assert [stage["stage_id"] for stage in stages] == [1, 2, 3, 4, 5, 6]
     assert [stage["title"] for stage in stages] == ["보이스피싱", "투자사기", "부동산사기", "대출사기", "중고사기", "랜덤"]
     assert stages[0]["stage_score"] == 0
+    assert stages[0]["best_round_count"] is None
 
     enter_response = client.post("/api/v1/stages/1/enter", headers=auth_headers)
     assert enter_response.status_code == 200
@@ -71,6 +72,14 @@ def test_list_stage_rounds_returns_all_rounds_for_stage(client: TestClient, auth
     assert start_stage1_first.status_code == 200
     first_round_id = start_stage1_first.json()["data"]["round_id"]
 
+    first_message = client.post(
+        f"/api/v1/rounds/{first_round_id}/messages",
+        headers=auth_headers,
+        json={"content": "첫 번째 라운드 증거 메시지"},
+    )
+    assert first_message.status_code == 200
+    assert first_message.json()["is_evidence"] is True
+
     judge_first = client.post(
         f"/api/v1/rounds/{first_round_id}/judge",
         headers=auth_headers,
@@ -114,8 +123,6 @@ def test_start_round_builds_mapped_prompt_and_resume_keeps_same_scenario(
     from uuid import UUID
 
     from app.db.models import Round, Scenario
-    from app.services.fraud_placeholder import FRAUD_PLACEHOLDER_AI_NAME, FRAUD_PLACEHOLDER_SITUATION_PROMPT
-
     _sync_default_user(client)
     monkeypatch.setattr("app.services.scenario_selector.choose_is_fraud", lambda: True)
     monkeypatch.setattr("app.services.scenario_selector.random.choice", lambda seq: list(seq)[0])
@@ -123,15 +130,15 @@ def test_start_round_builds_mapped_prompt_and_resume_keeps_same_scenario(
     first_start = client.post("/api/v1/stages/1/rounds", headers=auth_headers)
     assert first_start.status_code == 200
     first_data = first_start.json()["data"]
-    assert first_data["situation_prompt"] == FRAUD_PLACEHOLDER_SITUATION_PROMPT
-    assert first_data["ai_name"] == FRAUD_PLACEHOLDER_AI_NAME
+    assert first_data["situation_prompt"] == "테스트 동적 사기 명분"
+    assert first_data["ai_name"] == "테스트 공격자"
 
     round_obj = db_session.get(Round, UUID(first_data["round_id"]))
     assert round_obj is not None
     scenario = db_session.get(Scenario, round_obj.scenario_id)
     assert scenario is not None
-    assert scenario.fraud_evidence_keys == ["기관 사칭"]
-    assert "이번 라운드의 핵심 단서는 '기관 사칭'이다." in scenario.system_prompt
+    assert scenario.fraud_evidence_keys == ["테스트 공격 수단"]
+    assert "테스트 동적 사기 명분" in scenario.system_prompt
 
     resumed = client.post("/api/v1/stages/1/rounds", headers=auth_headers)
     assert resumed.status_code == 200
@@ -189,6 +196,50 @@ def test_start_round_worker_initial_message_and_resume_no_duplicate(
 
     settings.ai_worker_enabled = original_enabled
     settings.ai_worker_token = original_token
+
+
+def test_start_round_worker_uses_token_without_explicit_enabled(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    monkeypatch,
+):
+    from app.core.config import get_settings
+
+    _sync_default_user(client)
+    monkeypatch.setattr("app.services.scenario_selector.choose_is_fraud", lambda: False)
+    settings = get_settings()
+    original_enabled = settings.ai_worker_enabled
+    original_token = settings.ai_worker_token
+    settings.ai_worker_enabled = False
+    settings.ai_worker_token = "test-token"
+
+    calls = {"count": 0}
+
+    def _fake_worker(*, settings, payload):
+        from app.services.ai import AIReply
+
+        calls["count"] += 1
+        return AIReply(
+            content="token enabled initial ai",
+            is_evidence=False,
+            evidence_reason=None,
+            input_tokens=None,
+            output_tokens=None,
+            latency_ms=1,
+            worker_is_conversation_over=False,
+        )
+
+    monkeypatch.setattr("app.services.stage_service.call_normal_worker", _fake_worker)
+
+    try:
+        start = client.post("/api/v1/stages/1/rounds", headers=auth_headers)
+        assert start.status_code == 200
+        data = start.json()["data"]
+        assert data["initial_message"]["content"] == "token enabled initial ai"
+        assert calls["count"] == 1
+    finally:
+        settings.ai_worker_enabled = original_enabled
+        settings.ai_worker_token = original_token
 
 
 def test_round_stores_stable_scenario_context(client: TestClient, db_session, auth_headers: dict[str, str], monkeypatch):

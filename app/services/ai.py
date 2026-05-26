@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
@@ -11,6 +12,7 @@ from app.core.exceptions import ApiError
 from app.db.models import ChatMessage, Scenario
 from app.services.prompt_mapping import build_turn_instruction_prompt, resolve_evidence_name
 from app.services.scenario_catalog import get_hide_fallback, get_reveal_fallback
+from app.services.llm_engine.attacker import AttackerEngine
 
 
 @dataclass
@@ -89,6 +91,7 @@ class BaseAIProvider:
         recent_history: list[ChatMessage],
         user_message: str,
         reveal_evidence: bool,
+        user_meta: dict[str, Any] | None = None,
     ) -> AIReply:
         raise NotImplementedError
 
@@ -103,6 +106,7 @@ class StubAIProvider(BaseAIProvider):
         recent_history: list[ChatMessage],
         user_message: str,
         reveal_evidence: bool,
+        user_meta: dict[str, Any] | None = None,
     ) -> AIReply:
         start = time.perf_counter()
         evidence_name = _resolve_primary_evidence_name(scenario)
@@ -148,6 +152,7 @@ class GeminiAIProvider(BaseAIProvider):
         recent_history: list[ChatMessage],
         user_message: str,
         reveal_evidence: bool,
+        user_meta: dict[str, Any] | None = None,
     ) -> AIReply:
         from google import genai
 
@@ -202,10 +207,88 @@ class GeminiAIProvider(BaseAIProvider):
         )
 
 
-def get_ai_provider(settings: Settings) -> BaseAIProvider:
+
+class AttackerAIProvider(BaseAIProvider):
+    def __init__(self, settings: Settings):
+        self.engine = AttackerEngine(settings)
+
+    def generate_reply(
+        self,
+        *,
+        settings: Settings,
+        scenario: Scenario,
+        conversation_summary: str | None,
+        recent_history: list[ChatMessage],
+        user_message: str,
+        reveal_evidence: bool,
+        user_meta: dict[str, Any] | None = None,
+    ) -> AIReply:
+        start = time.perf_counter()
+        history = [
+            {"role": "assistant" if message.role == "ai" else message.role, "content": message.content}
+            for message in recent_history
+        ]
+        if user_message:
+            history.append({"role": "user", "content": user_message})
+
+        try:
+            scenario_data = json.loads(scenario.system_prompt)
+            if not isinstance(scenario_data, dict):
+                scenario_data = {}
+        except (TypeError, ValueError):
+            scenario_data = {}
+
+        if not scenario_data:
+            scenario_data = {
+                "official_name": scenario.ai_name,
+                "scammer_role": scenario.genre,
+                "pretext": scenario.title,
+                "logic": "상황 확인이 필요합니다.",
+            }
+
+        safe_user_meta = user_meta or {"이름": "사용자", "연령대": "미상", "직업": "미상"}
+        result = self.engine.generate_reply(
+            category=scenario.genre,
+            history=history,
+            user_meta=safe_user_meta,
+            scenario_data=scenario_data,
+        )
+
+        content = str(result.get("content") or "").strip() or get_hide_fallback(scenario.genre)
+        latency_ms = int((time.perf_counter() - start) * 1000)
+
+        is_evidence = bool(result.get("is_evidence") or reveal_evidence)
+        evidence_reason = None
+        if is_evidence:
+            evidence_name = _resolve_primary_evidence_name(scenario)
+            stage = result.get("stage") or "진행 단계"
+            evidence_reason = (
+                f"핵심 단서 '{evidence_name}'가 감지되었습니다."
+                if evidence_name
+                else f"사기 의심 단계('{stage}')가 감지되었습니다."
+            )
+
+        return AIReply(
+            content=content,
+            is_evidence=is_evidence,
+            evidence_reason=evidence_reason,
+            input_tokens=estimate_tokens(str(history)),
+            output_tokens=estimate_tokens(content),
+            latency_ms=latency_ms,
+        )
+
+
+def get_ai_provider(settings: Settings, scenario: Scenario | None = None) -> BaseAIProvider:
+    if scenario is not None and scenario.is_fraud and settings.llm_studio_enabled:
+        return AttackerAIProvider(settings)
     if settings.gemini_enabled:
         return GeminiAIProvider()
     return StubAIProvider()
+
+
+def should_use_normal_worker(settings: Settings) -> bool:
+    # In deployment, setting the secret token should be enough to enable the default worker URL.
+    return settings.ai_worker_enabled or bool(settings.ai_worker_token)
 
 
 def call_normal_worker(*, settings: Settings, payload: dict) -> AIReply:

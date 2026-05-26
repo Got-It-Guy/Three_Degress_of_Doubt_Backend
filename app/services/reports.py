@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import ChatMessage, Round, RoundReport, Scenario
@@ -40,6 +41,11 @@ def upsert_round_report(
 
     report = round_obj.report
     if report is None:
+        report = db.execute(
+            select(RoundReport).where(RoundReport.round_id == round_obj.round_id)
+        ).scalar_one_or_none()
+
+    if report is None:
         report = RoundReport(
             round_id=round_obj.round_id,
             report_type=report_type,
@@ -48,6 +54,7 @@ def upsert_round_report(
             fraud_points=fraud_points,
         )
         db.add(report)
+        round_obj.report = report
     else:
         report.report_type = report_type
         report.summary = summary

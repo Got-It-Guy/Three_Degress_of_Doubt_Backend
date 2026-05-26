@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 
@@ -22,9 +22,10 @@ from app.repositories.stages import (
     list_active_stages,
     list_user_progresses,
 )
-from app.services.ai import call_normal_worker
+from app.services.ai import call_normal_worker, get_ai_provider, should_use_normal_worker
 from app.services.fraud_placeholder import FRAUD_PLACEHOLDER_AI_NAME, FRAUD_PLACEHOLDER_SITUATION_PROMPT
 from app.services.normal_prompt_catalog import build_normal_prompt_context
+from app.services.progress_policy import has_stage_clear_record
 from app.services.scenario_selector import select_scenario_for_stage
 
 
@@ -38,6 +39,7 @@ class StageListRow:
     stage_score: int
     warning_count: int
     total_round_count: int
+    best_round_count: int | None
     is_cleared: bool
 
 
@@ -87,6 +89,16 @@ def _build_worker_user_profile(user_row: User | None) -> dict[str, str]:
     }
 
 
+def _build_attacker_user_meta(user_row: User | None) -> dict[str, str]:
+    return {
+        "이름": (user_row.nickname if user_row else "") or "사용자",
+        "연령대": (user_row.age_group if user_row else "") or "미상",
+        "직업": (user_row.job if user_row else "") or "미상",
+        "은행": (user_row.main_bank if user_row else "") or "미상",
+        "거주지": (user_row.residence if user_row else "") or "미상",
+    }
+
+
 def _build_fraud_round_context(*, stage_title: str, scenario_genre: str, ai_name: str, situation_prompt: str) -> dict:
     return {
         "display_label": stage_title,
@@ -94,6 +106,16 @@ def _build_fraud_round_context(*, stage_title: str, scenario_genre: str, ai_name
         "situation": situation_prompt,
         "scenario_family": scenario_genre,
     }
+
+
+def _reset_progress_for_new_attempt(progress: UserStageProgress, *, stage: Stage) -> None:
+    if not has_stage_clear_record(progress):
+        return
+    progress.is_cleared = True
+    if progress.stage_score < stage.required_score:
+        return
+    progress.stage_score = 0
+    progress.total_round_count = 0
 
 
 def list_stages_for_user(*, db: Session, uid: str) -> list[StageListRow]:
@@ -114,7 +136,8 @@ def list_stages_for_user(*, db: Session, uid: str) -> list[StageListRow]:
                 stage_score=progress.stage_score if progress else 0,
                 warning_count=progress.warning_count if progress else 0,
                 total_round_count=progress.total_round_count if progress else 0,
-                is_cleared=progress.is_cleared if progress else False,
+                best_round_count=progress.best_round_count if progress else None,
+                is_cleared=has_stage_clear_record(progress) if progress else False,
             )
         )
     return items
@@ -129,17 +152,17 @@ def enter_stage_for_user(*, db: Session, uid: str, stage_id: int) -> StageEnterR
     if progress is None:
         progress = create_user_progress(db, uid, stage_id)
 
-    total_round_count = count_user_stage_rounds(db, uid, stage_id)
-    progress.total_round_count = total_round_count
-    progress.updated_at = utc_now()
-
     incomplete_round = get_latest_in_progress_round_for_stage(db, uid, stage_id)
+    if incomplete_round is None:
+        _reset_progress_for_new_attempt(progress, stage=stage)
+
+    progress.updated_at = utc_now()
 
     db.commit()
     db.refresh(progress)
     return StageEnterResult(
         progress=progress,
-        total_round_count=total_round_count,
+        total_round_count=progress.total_round_count,
         has_incomplete_round=incomplete_round is not None,
     )
 
@@ -159,7 +182,6 @@ def start_round_for_user(*, db: Session, uid: str, stage_id: int) -> RoundStartR
             (msg for msg in list_round_messages(db, str(existing_round.round_id)) if msg.role in ("ai", "assistant")),
             None,
         )
-        progress.total_round_count = count_user_stage_rounds(db, uid, stage_id)
         progress.updated_at = utc_now()
         db.commit()
         db.refresh(progress)
@@ -172,14 +194,18 @@ def start_round_for_user(*, db: Session, uid: str, stage_id: int) -> RoundStartR
             initial_message=existing_initial_message,
         )
 
-    scenario = select_scenario_for_stage(db, stage)
+    _reset_progress_for_new_attempt(progress, stage=stage)
+
+    settings = get_settings()
     user_row = db.get(User, uid)
+    scenario = select_scenario_for_stage(db, stage, settings=settings, user=user_row)
     user_profile = _build_worker_user_profile(user_row)
     if scenario.is_fraud:
-        scenario.situation_prompt = FRAUD_PLACEHOLDER_SITUATION_PROMPT
-        scenario.ai_name = FRAUD_PLACEHOLDER_AI_NAME
+        if not settings.llm_studio_enabled:
+            scenario.situation_prompt = FRAUD_PLACEHOLDER_SITUATION_PROMPT
+            scenario.ai_name = FRAUD_PLACEHOLDER_AI_NAME
         scenario_type = scenario.genre
-        scenario_variant = "fraud"
+        scenario_variant = "fraud_dynamic" if settings.llm_studio_enabled else "fraud"
         scenario_context = _build_fraud_round_context(
             stage_title=stage.title,
             scenario_genre=scenario.genre,
@@ -209,8 +235,29 @@ def start_round_for_user(*, db: Session, uid: str, stage_id: int) -> RoundStartR
     create_round(db, round_obj)
 
     initial_message: ChatMessage | None = None
-    settings = get_settings()
-    if settings.ai_worker_enabled and not scenario.is_fraud:
+    if settings.llm_studio_enabled and scenario.is_fraud:
+        provider = get_ai_provider(settings, scenario=scenario)
+        reply = provider.generate_reply(
+            settings=settings,
+            scenario=scenario,
+            conversation_summary=None,
+            recent_history=[],
+            user_message="",
+            reveal_evidence=False,
+            user_meta=_build_attacker_user_meta(user_row),
+        )
+        initial_message = ChatMessage(
+            round_id=round_obj.round_id,
+            role="ai",
+            content=reply.content,
+            is_evidence=reply.is_evidence,
+            evidence_reason=reply.evidence_reason,
+            worker_is_conversation_over=reply.worker_is_conversation_over,
+        )
+        add_chat_message(db, initial_message)
+        if reply.is_evidence:
+            round_obj.evidence_count += 1
+    elif should_use_normal_worker(settings) and not scenario.is_fraud:
         reply = call_normal_worker(
             settings=settings,
             payload={

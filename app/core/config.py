@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     gemini_enabled: bool = False
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-2.0-flash"
+    # Attacker LLM engine. Fraud scenarios use this, normal scenarios keep the verify worker flow.
+    llm_studio_enabled: bool = True
+    llm_studio_base_url: str = "http://llm.hiclouddev.com/v1"
+    llm_studio_api_key: str = "lm-studio"
+    llm_studio_model: str = "local-model"
+
+    # Normal scenario worker. The deployed worker URL is the default; set AI_WORKER_TOKEN to use it.
     ai_worker_enabled: bool = False
     ai_worker_base_url: str = "https://ai.my-bucket-editor.win"
     ai_worker_token: Optional[str] = None

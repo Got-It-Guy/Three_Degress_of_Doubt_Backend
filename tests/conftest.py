@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.deps import AuthenticatedUser, get_current_user
+from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
@@ -73,3 +74,58 @@ def client(db_session: Session):
 @pytest.fixture()
 def auth_headers() -> dict[str, str]:
     return {"Authorization": "Bearer test-token-not-used"}
+
+
+@pytest.fixture(autouse=True)
+def isolate_external_ai_settings():
+    settings = get_settings()
+    original_ai_worker_enabled = settings.ai_worker_enabled
+    original_ai_worker_token = settings.ai_worker_token
+    original_llm_studio_enabled = settings.llm_studio_enabled
+
+    settings.ai_worker_enabled = False
+    settings.ai_worker_token = None
+    settings.llm_studio_enabled = True
+    try:
+        yield
+    finally:
+        settings.ai_worker_enabled = original_ai_worker_enabled
+        settings.ai_worker_token = original_ai_worker_token
+        settings.llm_studio_enabled = original_llm_studio_enabled
+
+
+@pytest.fixture(autouse=True)
+def fake_attacker_engine(monkeypatch):
+    class FakeAttackerEngine:
+        def __init__(self, settings):
+            self.settings = settings
+
+        def generate_scenario(self, category, user_meta):
+            return {
+                "official_name": "테스트 공격자",
+                "scammer_role": category,
+                "main_goal": "테스트 목적",
+                "attack_method": "테스트 공격 수단",
+                "pretext": "테스트 동적 사기 명분",
+                "logic": "테스트 압박 논리",
+                "target_amount": 10000,
+                "account_no": "테스트은행 123-456",
+                "fake_link": "",
+            }
+
+        def generate_reply(self, category, history, user_meta, scenario_data):
+            has_user_message = bool(history and history[-1].get("role") == "user" and history[-1].get("content"))
+            if not has_user_message:
+                return {
+                    "content": "테스트 공격자입니다. 확인이 필요합니다.",
+                    "stage": "접근",
+                    "is_evidence": False,
+                }
+            return {
+                "content": "테스트 사기 응답입니다.",
+                "stage": "행동유도",
+                "is_evidence": True,
+            }
+
+    monkeypatch.setattr("app.services.scenario_selector.AttackerEngine", FakeAttackerEngine)
+    monkeypatch.setattr("app.services.ai.AttackerEngine", FakeAttackerEngine)
