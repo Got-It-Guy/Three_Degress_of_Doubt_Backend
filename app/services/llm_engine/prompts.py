@@ -22,6 +22,7 @@ SCENARIO_EXTRACTION_PROMPT = """
 {{
   "official_name": "사칭할 구체적 성함과 역할",
   "scammer_role": "사기꾼의 정체 (예: 딸, 택배기사, 검찰청 수사관 등)",
+  "item_name": "사기에 사용할 구체적 물품명 (예: 아이폰 15 Pro, 디올백, 특판 대출 상품명 등)",
   "main_goal": "{goal}",
   "attack_method": "{method}",
   "case_no": "판례/사례 기반 고유 번호",
