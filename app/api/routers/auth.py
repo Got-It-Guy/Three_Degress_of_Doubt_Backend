@@ -17,7 +17,8 @@ def firebase_login_endpoint(
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> FirebaseLoginResponse:
-    user = sync_user_from_firebase_token(db=db, id_token=payload.id_token, settings=settings)
+    result = sync_user_from_firebase_token(db=db, id_token=payload.id_token, settings=settings)
+    user = result.user
     return FirebaseLoginResponse(
         uid=user.uid,
         email=user.email,
