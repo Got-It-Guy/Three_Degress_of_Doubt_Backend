@@ -198,6 +198,50 @@ def test_start_round_worker_initial_message_and_resume_no_duplicate(
     settings.ai_worker_token = original_token
 
 
+def test_start_round_worker_uses_token_without_explicit_enabled(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    monkeypatch,
+):
+    from app.core.config import get_settings
+
+    _sync_default_user(client)
+    monkeypatch.setattr("app.services.scenario_selector.choose_is_fraud", lambda: False)
+    settings = get_settings()
+    original_enabled = settings.ai_worker_enabled
+    original_token = settings.ai_worker_token
+    settings.ai_worker_enabled = False
+    settings.ai_worker_token = "test-token"
+
+    calls = {"count": 0}
+
+    def _fake_worker(*, settings, payload):
+        from app.services.ai import AIReply
+
+        calls["count"] += 1
+        return AIReply(
+            content="token enabled initial ai",
+            is_evidence=False,
+            evidence_reason=None,
+            input_tokens=None,
+            output_tokens=None,
+            latency_ms=1,
+            worker_is_conversation_over=False,
+        )
+
+    monkeypatch.setattr("app.services.stage_service.call_normal_worker", _fake_worker)
+
+    try:
+        start = client.post("/api/v1/stages/1/rounds", headers=auth_headers)
+        assert start.status_code == 200
+        data = start.json()["data"]
+        assert data["initial_message"]["content"] == "token enabled initial ai"
+        assert calls["count"] == 1
+    finally:
+        settings.ai_worker_enabled = original_enabled
+        settings.ai_worker_token = original_token
+
+
 def test_round_stores_stable_scenario_context(client: TestClient, db_session, auth_headers: dict[str, str], monkeypatch):
     from uuid import UUID
     from app.db.models import Round
@@ -249,9 +293,10 @@ def test_normal_prompt_catalog_contains_handoff_required_context_fields():
             assert prompt.scenario_type == genre
             assert prompt.scenario_variant == variant
             assert required_keys <= set(prompt.scenario_context)
-            assert prompt.situation_prompt.startswith("상황: ")
-            assert "\n현재 단계: " in prompt.situation_prompt
-            assert "\n내가 하려는 것: " in prompt.situation_prompt
+            assert prompt.situation_prompt.startswith("상황: 사용자는 ")
+            assert "현재" in prompt.situation_prompt
+            assert "상대방은" in prompt.situation_prompt
+            assert "사용자는" in prompt.situation_prompt
 
 
 def test_start_round_worker_payload_uses_prompt_source_handoff_context(
@@ -299,9 +344,10 @@ def test_start_round_worker_payload_uses_prompt_source_handoff_context(
         start = client.post("/api/v1/stages/1/rounds", headers=auth_headers)
         assert start.status_code == 200
         data = start.json()["data"]
-        assert data["situation_prompt"].startswith("상황: 은행에서 로그인/이체 이상 징후 알림을 받은 상황")
-        assert "현재 단계: 이상거래 알림을 받고 본인 확인 절차를 문의하는 단계" in data["situation_prompt"]
-        assert "내가 하려는 것: 내 계좌가 안전한지 확인하고 공식 보호 절차를 진행하고 싶음" in data["situation_prompt"]
+        assert data["situation_prompt"].startswith("상황: 사용자는 은행에서 로그인/이체 이상 징후 알림을 받은 상황")
+        assert "현재 이상거래 알림을 받고 본인 확인 절차를 문의하는 단계" in data["situation_prompt"]
+        assert "상대방은 국민은행 보안센터 상담원" in data["situation_prompt"]
+        assert "사용자는 내 계좌가 안전한지 확인하고 공식 보호 절차를 진행하고 싶어 한다" in data["situation_prompt"]
         assert data["ai_name"] == "국민은행 보안센터 상담원"
 
         payload = captured["payload"]

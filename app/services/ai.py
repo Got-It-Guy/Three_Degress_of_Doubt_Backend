@@ -286,6 +286,11 @@ def get_ai_provider(settings: Settings, scenario: Scenario | None = None) -> Bas
     return StubAIProvider()
 
 
+def should_use_normal_worker(settings: Settings) -> bool:
+    # In deployment, setting the secret token should be enough to enable the default worker URL.
+    return settings.ai_worker_enabled or bool(settings.ai_worker_token)
+
+
 def call_normal_worker(*, settings: Settings, payload: dict) -> AIReply:
     if not settings.ai_worker_token:
         raise ApiError("AI 응답 생성에 실패했습니다. 잠시 후 다시 시도해주세요.", status_code=500)

@@ -11,7 +11,7 @@ from app.db.models import AICallLog, ChatMessage, Scenario, Stage, User
 from app.repositories.rounds import add_ai_log, add_chat_message, get_user_round, list_round_messages
 from app.repositories.stages import get_user_progress
 from app.schemas.reports import FraudPoint
-from app.services.ai import AIReply, call_normal_worker, get_ai_provider
+from app.services.ai import AIReply, call_normal_worker, get_ai_provider, should_use_normal_worker
 from app.services.conversation_memory import RoundConversationContext, build_round_conversation_context, sync_round_conversation_context
 from app.services.conversation_end import decide_end_reason
 from app.services.fraud_placeholder import FRAUD_PLACEHOLDER_EVIDENCE_REASON, FRAUD_PLACEHOLDER_MESSAGE
@@ -216,7 +216,7 @@ def send_round_message(
             output_tokens=None,
             latency_ms=0,
         )
-    elif settings.ai_worker_enabled and not scenario.is_fraud:
+    elif should_use_normal_worker(settings) and not scenario.is_fraud:
         user_profile = {
             "name": (user_row.nickname if user_row else "") or "",
             "ageGroup": (user_row.age_group if user_row else "") or "",

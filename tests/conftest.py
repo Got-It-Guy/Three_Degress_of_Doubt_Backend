@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.deps import AuthenticatedUser, get_current_user
+from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
@@ -73,6 +74,25 @@ def client(db_session: Session):
 @pytest.fixture()
 def auth_headers() -> dict[str, str]:
     return {"Authorization": "Bearer test-token-not-used"}
+
+
+@pytest.fixture(autouse=True)
+def isolate_external_ai_settings():
+    settings = get_settings()
+    original_ai_worker_enabled = settings.ai_worker_enabled
+    original_ai_worker_token = settings.ai_worker_token
+    original_llm_studio_enabled = settings.llm_studio_enabled
+
+    settings.ai_worker_enabled = False
+    settings.ai_worker_token = None
+    settings.llm_studio_enabled = True
+    try:
+        yield
+    finally:
+        settings.ai_worker_enabled = original_ai_worker_enabled
+        settings.ai_worker_token = original_ai_worker_token
+        settings.llm_studio_enabled = original_llm_studio_enabled
+
 
 @pytest.fixture(autouse=True)
 def fake_attacker_engine(monkeypatch):

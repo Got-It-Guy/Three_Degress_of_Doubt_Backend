@@ -16,6 +16,7 @@ from app.schemas.stages import (
     StageRoundItem,
     StageRoundsResponse,
 )
+from app.services.progress_policy import has_stage_clear_record
 from app.services.stage_service import enter_stage_for_user, list_stage_rounds_for_user, list_stages_for_user, start_round_for_user
 
 router = APIRouter(prefix="/api/v1/stages", tags=["stages"])
@@ -43,7 +44,7 @@ def enter_stage(
         stage_id=progress.stage_id,
         stage_score=progress.stage_score,
         warning_count=progress.warning_count,
-        is_cleared=progress.is_cleared,
+        is_cleared=has_stage_clear_record(progress),
         total_round_count=result.total_round_count,
         has_incomplete_round=result.has_incomplete_round,
     )

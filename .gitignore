@@ -10,4 +10,3 @@ firebase-service-account.json
 
 # Firebase Admin SDK key
 *firebase-adminsdk*.json
-*.md

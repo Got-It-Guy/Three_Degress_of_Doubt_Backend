@@ -46,6 +46,46 @@ class AttackerEngine:
         except:
             return {}
 
+    def _retrieve_relevant_document(self, df: pd.DataFrame, text_col: str, category: str, user_meta: Dict[str, Any]) -> str:
+        if df.empty or text_col not in df.columns:
+            return ""
+        
+        meta_values = [str(v) for v in user_meta.values() if v and v != "미상"]
+        query = f"{category} " + " ".join(meta_values)
+        
+        texts = df[text_col].fillna("").tolist()
+        
+        try:
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            from sklearn.metrics.pairwise import cosine_similarity
+            
+            vectorizer = TfidfVectorizer()
+            tfidf_matrix = vectorizer.fit_transform(texts + [query])
+            
+            cosine_similarities = cosine_similarity(tfidf_matrix[-1], tfidf_matrix[:-1]).flatten()
+            best_idx = cosine_similarities.argmax()
+            
+            if cosine_similarities[best_idx] == 0:
+                return str(random.choice(texts))[:1500]
+            
+            return str(texts[best_idx])[:1500]
+            
+        except Exception:
+            query_words = query.split()
+            best_score = -1
+            best_text = ""
+            
+            for text in texts:
+                score = sum(1 for word in query_words if word in str(text))
+                if score > best_score:
+                    best_score = score
+                    best_text = text
+                    
+            if best_score <= 0:
+                return str(random.choice(texts))[:1500]
+            
+            return str(best_text)[:1500]
+
     def generate_scenario(self, category: str, user_meta: Dict[str, Any]) -> Dict[str, Any]:
         # 1. 카테고리별 특화된 공격 목표와 수단 설정
         category_goals = {
@@ -112,22 +152,28 @@ class AttackerEngine:
         try:
             if path and os.path.exists(path):
                 df_p = pd.read_csv(path)
-                valid_p = df_p[df_p['판례내용'].notna()]
-                if not valid_p.empty:
-                    precedent_text = str(valid_p.sample(n=1).iloc[0]['판례내용'])[:1500]
+                # TF-IDF RAG 적용
+                precedent_text = self._retrieve_relevant_document(df_p, '판례내용', category, user_meta)
             
             if os.path.exists(self.fss_path):
                 df_f = pd.read_csv(self.fss_path)
-                if random.random() > 0.3:
-                    match_f = df_f[df_f['content'].str.contains(category[:2], na=False)]
-                    if not match_f.empty: 
-                        fss_text = str(match_f.sample(n=1).iloc[0]['content'])[:1500]
-                if not fss_text:
-                    fss_text = str(df_f.sample(n=1).iloc[0]['content'])[:1500]
+                # FSS 데이터에서도 RAG 적용
+                fss_text = self._retrieve_relevant_document(df_f, 'content', category, user_meta)
+            
+            # === RAG 결과 로그 출력 추가 ===
+            print("\n" + "="*50)
+            print(f"[RAG DEBUG] Category: {category}")
+            print(f"Selected Precedent (Partial): {precedent_text[:100]}...")
+            print(f"Selected FSS Case (Partial): {fss_text[:100]}...")
+            print("="*50 + "\n")
+            # ============================
+
         except Exception as e:
             print(f"Error loading CSV data: {e}")
-
+            
+        
         extraction_prompt = SCENARIO_EXTRACTION_PROMPT.format(
+            category=category,
             goal=selected_goal['goal'],
             method=selected_goal['method'],
             user_meta=json.dumps(user_meta, ensure_ascii=False),

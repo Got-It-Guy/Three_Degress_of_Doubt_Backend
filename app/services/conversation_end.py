@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 COMMON_USER_CLOSE = [
     "감사합니다",

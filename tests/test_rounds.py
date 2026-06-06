@@ -56,6 +56,7 @@ def test_normal_scenario_has_no_evidence_and_false_alarm_report(client: TestClie
     monkeypatch.setattr("app.services.scenario_selector.choose_is_fraud", lambda: False)
 
     start_response = client.post("/api/v1/stages/1/rounds", headers=auth_headers)
+    assert start_response.status_code == 200, start_response.text
     round_id = start_response.json()["data"]["round_id"]
 
     message_response = client.post(

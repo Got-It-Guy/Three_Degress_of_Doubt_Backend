@@ -211,13 +211,23 @@ def _choose_variant(genre: str) -> str:
     return random.choice(variants)
 
 
+def _naturalize_user_intent(intent: str) -> str:
+    intent = intent.strip()
+    if intent.endswith("싶음"):
+        return f"{intent[:-2].rstrip()} 싶어 한다"
+    if intent.endswith("."):
+        return intent[:-1]
+    return intent
+
+
 def build_frontend_situation_prompt(context: dict[str, Any]) -> str:
-    return "\n".join(
-        [
-            f"상황: {context['situation']}",
-            f"현재 단계: {context['current_stage']}",
-            f"내가 하려는 것: {context['user_intent']}",
-        ]
+    situation = str(context["situation"]).strip()
+    current_stage = str(context["current_stage"]).strip()
+    user_intent = _naturalize_user_intent(str(context["user_intent"]))
+    counterpart = str(context["counterpart_role"]).strip()
+    return (
+        f"상황: 사용자는 {situation}이며, 현재 {current_stage}이다. "
+        f"상대방은 {counterpart}이고, 사용자는 {user_intent}."
     )
 
 

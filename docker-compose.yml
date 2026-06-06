@@ -27,7 +27,10 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+psycopg://postgres.qwqtlsauztvdjhcmbnak:C03vRLc8ly3b4qIt@aws-1-ap-northeast-2.pooler.supabase.com:5432/postgres
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/fraud_sim}
+      GOOGLE_APPLICATION_CREDENTIALS: /app/firebase-service-account.json
+      AI_WORKER_BASE_URL: ${AI_WORKER_BASE_URL:-https://ai.my-bucket-editor.win}
+      LLM_STUDIO_BASE_URL: ${LLM_STUDIO_BASE_URL:-http://llm.hiclouddev.com/v1}
     ports:
       - "8000:8000"
 

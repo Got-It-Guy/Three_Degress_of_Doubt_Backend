@@ -22,9 +22,10 @@ from app.repositories.stages import (
     list_active_stages,
     list_user_progresses,
 )
-from app.services.ai import call_normal_worker, get_ai_provider
+from app.services.ai import call_normal_worker, get_ai_provider, should_use_normal_worker
 from app.services.fraud_placeholder import FRAUD_PLACEHOLDER_AI_NAME, FRAUD_PLACEHOLDER_SITUATION_PROMPT
 from app.services.normal_prompt_catalog import build_normal_prompt_context
+from app.services.progress_policy import has_stage_clear_record
 from app.services.scenario_selector import select_scenario_for_stage
 
 
@@ -107,8 +108,11 @@ def _build_fraud_round_context(*, stage_title: str, scenario_genre: str, ai_name
     }
 
 
-def _reset_progress_for_new_attempt(progress: UserStageProgress) -> None:
-    if not progress.is_cleared:
+def _reset_progress_for_new_attempt(progress: UserStageProgress, *, stage: Stage) -> None:
+    if not has_stage_clear_record(progress):
+        return
+    progress.is_cleared = True
+    if progress.stage_score < stage.required_score:
         return
     progress.stage_score = 0
     progress.total_round_count = 0
@@ -133,7 +137,7 @@ def list_stages_for_user(*, db: Session, uid: str) -> list[StageListRow]:
                 warning_count=progress.warning_count if progress else 0,
                 total_round_count=progress.total_round_count if progress else 0,
                 best_round_count=progress.best_round_count if progress else None,
-                is_cleared=progress.is_cleared if progress else False,
+                is_cleared=has_stage_clear_record(progress) if progress else False,
             )
         )
     return items
@@ -150,7 +154,7 @@ def enter_stage_for_user(*, db: Session, uid: str, stage_id: int) -> StageEnterR
 
     incomplete_round = get_latest_in_progress_round_for_stage(db, uid, stage_id)
     if incomplete_round is None:
-        _reset_progress_for_new_attempt(progress)
+        _reset_progress_for_new_attempt(progress, stage=stage)
 
     progress.updated_at = utc_now()
 
@@ -190,7 +194,7 @@ def start_round_for_user(*, db: Session, uid: str, stage_id: int) -> RoundStartR
             initial_message=existing_initial_message,
         )
 
-    _reset_progress_for_new_attempt(progress)
+    _reset_progress_for_new_attempt(progress, stage=stage)
 
     settings = get_settings()
     user_row = db.get(User, uid)
@@ -253,7 +257,7 @@ def start_round_for_user(*, db: Session, uid: str, stage_id: int) -> RoundStartR
         add_chat_message(db, initial_message)
         if reply.is_evidence:
             round_obj.evidence_count += 1
-    elif settings.ai_worker_enabled and not scenario.is_fraud:
+    elif should_use_normal_worker(settings) and not scenario.is_fraud:
         reply = call_normal_worker(
             settings=settings,
             payload={

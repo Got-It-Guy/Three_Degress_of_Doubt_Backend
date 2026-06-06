@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.time_utils import utc_now
 from app.db.models import Round, Scenario, Stage, UserStageProgress
+from app.services.progress_policy import has_stage_clear_record
 from app.services.reports import upsert_round_report
 
 
@@ -44,7 +45,8 @@ def judge_round(
         response_score = progress.stage_score
         round_obj.result = "pass"
         round_obj.score_delta = 1
-        if response_score >= stage.required_score:
+        attempt_cleared = response_score >= stage.required_score
+        if attempt_cleared:
             progress.is_cleared = True
             if progress.cleared_at is None:
                 progress.cleared_at = round_obj.ended_at
@@ -65,7 +67,7 @@ def judge_round(
             score_delta=1,
             current_score=response_score,
             current_warning=progress.warning_count,
-            is_stage_cleared=progress.is_cleared,
+            is_stage_cleared=attempt_cleared,
         )
 
     progress.warning_count += 1
@@ -84,7 +86,8 @@ def judge_round(
         round_obj.ended_at = judged_at
         progress.stage_score = 0
         progress.warning_count = 0
-        progress.is_cleared = False
+        if has_stage_clear_record(progress):
+            progress.is_cleared = True
         round_obj.result = "reset"
         progress.updated_at = utc_now()
         db.flush()
@@ -93,7 +96,7 @@ def judge_round(
             score_delta=0,
             current_score=progress.stage_score,
             current_warning=progress.warning_count,
-            is_stage_cleared=progress.is_cleared,
+            is_stage_cleared=False,
         )
 
     # A first wrong judgement is a warning inside the same round, not a final judgement.
@@ -110,5 +113,5 @@ def judge_round(
         score_delta=0,
         current_score=progress.stage_score,
         current_warning=progress.warning_count,
-        is_stage_cleared=progress.is_cleared,
+        is_stage_cleared=False,
     )
