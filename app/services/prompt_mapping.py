@@ -68,8 +68,11 @@ def build_normal_scenario_prompts(*, fraud_type: str, ai_name: str) -> tuple[str
         이름: '{ai_name}'
 
         [응답 규칙]
-        - 자연스럽고 간결하게 답한다.
-        - 허위 위협, 사기 단서, 강압 표현을 만들지 않는다.
+        - 실제 사람처럼 자연스럽게 대화한다.
+        - 자신의 역할에 맞는 정상적인 절차만 안내한다.
+        - 질문받은 내용 중심으로 간결하게 답한다.
+        - 사용자가 묻지 않은 내용을 길게 설명하지 않는다.
+        - 허위 위협, 강압 표현, 송금 요구, 인증번호 요구를 하지 않는다.
         """
     ).strip()
     return situation_prompt, system_prompt
